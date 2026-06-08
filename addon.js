@@ -198,8 +198,8 @@ builder.defineStreamHandler(async (args) => {
 
         return [directStream, {
           url: makeHlsProxyUrl(s.url, streamReferer, meta, subtitles),
-          name: 'StreamIMDb iOS Proxy',
-          title: type === 'series' ? `S${season}E${episode} Â· ${s.quality} Â· iOS Proxy` : `${s.quality} Â· iOS Proxy`,
+          name: 'ogladanie przez VLC IOS',
+          title: 'ogladanie przez VLC IOS',
           behaviorHints: proxyBehaviorHints,
           subtitles,
         }];

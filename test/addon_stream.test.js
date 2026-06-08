@@ -78,7 +78,8 @@ test('direct streams with referer include Stremio proxy headers', async (t) => {
     lang: 'eng',
   }]);
 
-  assert.equal(result.streams[1].name, 'StreamIMDb iOS Proxy');
+  assert.equal(result.streams[1].name, 'ogladanie przez VLC IOS');
+  assert.equal(result.streams[1].title, 'ogladanie przez VLC IOS');
   assert.match(result.streams[1].url, /^https:\/\/example\.vercel\.app\/hls\/.+\.m3u8$/);
   assert.equal(result.streams[1].behaviorHints.proxyHeaders, undefined);
   assert.equal(result.streams[1].behaviorHints.notWebReady, true);
