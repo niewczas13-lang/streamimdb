@@ -112,9 +112,18 @@ function makeSubtitles(source) {
     });
   }
 
-  const preferred = subtitles.filter(sub => preferredLangs.includes(sub.lang));
+  const preferred = subtitles
+    .filter(sub => preferredLangs.includes(sub.lang))
+    .sort((a, b) => preferredLangs.indexOf(a.lang) - preferredLangs.indexOf(b.lang));
   const selected = preferred.length ? preferred : subtitles.slice(0, 8);
-  return selected.length ? selected : undefined;
+  const seenLangs = new Set();
+  const uniqueByLang = selected.filter(sub => {
+    if (seenLangs.has(sub.lang)) return false;
+    seenLangs.add(sub.lang);
+    return true;
+  });
+
+  return uniqueByLang.length ? uniqueByLang : undefined;
 }
 
 function makeStreamBehaviorHints(source, type, imdbId, referer) {

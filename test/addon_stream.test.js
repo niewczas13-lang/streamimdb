@@ -32,6 +32,10 @@ test('direct streams with referer include Stremio proxy headers', async (t) => {
             url: 'https://subs.example/eng-2.vtt',
             language: 'English - English',
           }, {
+            id: 'caption-eng-sdh',
+            url: 'https://subs.example/eng-11.vtt',
+            language: 'English - English SDH',
+          }, {
             id: 'caption-fre',
             url: 'https://subs.example/fre-17.vtt',
             language: 'French - French',
