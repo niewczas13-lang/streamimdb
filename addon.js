@@ -31,6 +31,36 @@ function makeHlsProxyUrl(streamUrl, referer, meta) {
   return `${SERVER_BASE}/hls/${token}.m3u8`;
 }
 
+function originFromUrl(url) {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
+
+function makeStreamBehaviorHints(source, type, imdbId, referer) {
+  const behaviorHints = type === 'series' ? { bingeGroup: `streamimdb-${imdbId}` } : {};
+  if (source.proxyable !== false) return behaviorHints;
+
+  const request = { ...(source.headers || {}) };
+  const headerReferer = request.Referer || request.referer;
+  const streamReferer = headerReferer || source.referer || referer;
+
+  if (streamReferer && !headerReferer) request.Referer = streamReferer;
+  if (!(request.Origin || request.origin)) {
+    const origin = originFromUrl(streamReferer);
+    if (origin) request.Origin = origin;
+  }
+
+  if (Object.keys(request).length > 0) {
+    behaviorHints.proxyHeaders = { request };
+    behaviorHints.notWebReady = true;
+  }
+
+  return behaviorHints;
+}
+
 builder.defineStreamHandler(async (args) => {
   try {
     const parts = args.id.split(':');
@@ -62,11 +92,12 @@ builder.defineStreamHandler(async (args) => {
         const streamUrl = s.proxyable === false
           ? s.url
           : makeHlsProxyUrl(s.url, s.referer || referer, meta);
+        const behaviorHints = makeStreamBehaviorHints(s, type, imdbId, s.referer || referer);
         return {
           url:   streamUrl,
           name:  'StreamIMDb',
           title: type === 'series' ? `S${season}E${episode} · ${s.quality}` : s.quality,
-          behaviorHints: type === 'series' ? { bingeGroup: `streamimdb-${imdbId}` } : undefined,
+          behaviorHints: Object.keys(behaviorHints).length ? behaviorHints : undefined,
         };
       });
       return { streams };
