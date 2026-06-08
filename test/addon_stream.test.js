@@ -31,6 +31,10 @@ test('direct streams with referer include Stremio proxy headers', async (t) => {
             id: 'caption-eng',
             url: 'https://subs.example/eng-2.vtt',
             language: 'English - English',
+          }, {
+            id: 'caption-fre',
+            url: 'https://subs.example/fre-17.vtt',
+            language: 'French - French',
           }],
         }],
       }),

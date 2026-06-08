@@ -92,6 +92,10 @@ function captionLang(caption) {
 
 function makeSubtitles(source) {
   if (!Array.isArray(source.captions)) return undefined;
+  const preferredLangs = (process.env.SUBTITLE_LANGS || 'pol,eng')
+    .split(',')
+    .map(lang => lang.trim().toLowerCase())
+    .filter(Boolean);
 
   const seen = new Set();
   const subtitles = [];
@@ -108,7 +112,9 @@ function makeSubtitles(source) {
     });
   }
 
-  return subtitles.length ? subtitles : undefined;
+  const preferred = subtitles.filter(sub => preferredLangs.includes(sub.lang));
+  const selected = preferred.length ? preferred : subtitles.slice(0, 8);
+  return selected.length ? selected : undefined;
 }
 
 function makeStreamBehaviorHints(source, type, imdbId, referer) {
