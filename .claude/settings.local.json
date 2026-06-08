@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(timeout 5 node server.js)",
+      "Bash(node -e \"require\\('puppeteer'\\); console.log\\('OK'\\)\")",
+      "Bash(node -e ' *)",
+      "Bash(npx puppeteer *)",
+      "Bash(node -e \"const { fetchVideoSource } = require\\('./scraper'\\); fetchVideoSource\\('tt0076759'\\).then\\(r => console.log\\('Resultado:', JSON.stringify\\(r\\)\\)\\).catch\\(e => console.error\\('Erro:', e.message\\)\\);\")",
+      "Bash(PUPPETEER_SKIP_DOWNLOAD=true npm install puppeteer)",
+      "Read(//c/Program Files \\(x86\\)/Microsoft/Edge/Application/**)",
+      "Read(//c/Program Files/Microsoft/Edge/Application/**)",
+      "Bash(powershell -Command \"Get-Item 'C:\\\\Program Files \\(x86\\)\\\\Microsoft\\\\Edge\\\\Application\\\\msedge.exe' | Select-Object FullName\")",
+      "Bash(node server.js)",
+      "Bash(curl -s \"http://localhost:7000/manifest.json\")",
+      "PowerShell(taskkill /F /IM node.exe)",
+      "PowerShell($conn = Get-NetTCPConnection -LocalPort 7000 -ErrorAction SilentlyContinue; if \\($conn\\) { $pid = $conn.OwningProcess; Write-Host \"PID: $pid\"; taskkill /F /PID $pid } else { Write-Host \"Porta livre\" })",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(git checkout *)",
+      "mcp__Claude_in_Chrome__tabs_context_mcp",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:www.proxy-cheap.com)",
+      "Bash(git branch *)",
+      "Bash(git restore *)",
+      "Bash(git rm *)",
+      "WebFetch(domain:streamimdb.me)"
+    ]
+  }
+}
