@@ -88,13 +88,15 @@ async function tryVidlink(tmdbId, type, season, episode) {
       headers: { 'User-Agent': UA, Referer: VIDLINK_REF },
       timeout: 8000, validateStatus: s => s < 500,
     });
-    const playlist = res.data && res.data.stream && res.data.stream.playlist;
+    const stream = res.data && res.data.stream;
+    const playlist = stream && stream.playlist;
     if (!playlist) { console.log('[dc:vidlink] sem playlist'); return null; }
+    const captions = Array.isArray(stream.captions) ? stream.captions : undefined;
 
     console.log(`[dc:vidlink] ✓ playlist: ${playlist.substring(0, 70)}...`);
     // proxyable:false — ver nota em tryVixsrc: a CDN bloqueia o IP de
     // datacenter do nosso proxy; o cliente (IP residencial) tenta directo.
-    return [{ url: playlist, quality: 'Auto', proxyable: false, referer: VIDLINK_REF + '/' }];
+    return [{ url: playlist, quality: 'Auto', proxyable: false, referer: VIDLINK_REF + '/', captions }];
   } catch (e) {
     console.log(`[dc:vidlink] erro: ${e.message}`);
     return null;

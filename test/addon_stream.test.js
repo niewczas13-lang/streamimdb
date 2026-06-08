@@ -23,6 +23,15 @@ test('direct streams with referer include Stremio proxy headers', async (t) => {
           quality: 'Auto',
           proxyable: false,
           referer: 'https://videostr.net/',
+          captions: [{
+            id: 'caption-pol',
+            url: 'https://subs.example/pol-29.vtt',
+            language: 'Polish - Polish',
+          }, {
+            id: 'caption-eng',
+            url: 'https://subs.example/eng-2.vtt',
+            language: 'English - English',
+          }],
         }],
       }),
     },
@@ -51,9 +60,19 @@ test('direct streams with referer include Stremio proxy headers', async (t) => {
     },
   });
   assert.equal(result.streams[0].behaviorHints.notWebReady, true);
+  assert.deepEqual(result.streams[0].subtitles, [{
+    id: 'caption-pol',
+    url: 'https://subs.example/pol-29.vtt',
+    lang: 'pol',
+  }, {
+    id: 'caption-eng',
+    url: 'https://subs.example/eng-2.vtt',
+    lang: 'eng',
+  }]);
 
   assert.equal(result.streams[1].name, 'StreamIMDb iOS Proxy');
   assert.match(result.streams[1].url, /^https:\/\/example\.vercel\.app\/hls\/.+\.m3u8$/);
   assert.equal(result.streams[1].behaviorHints.proxyHeaders, undefined);
   assert.equal(result.streams[1].behaviorHints.notWebReady, true);
+  assert.deepEqual(result.streams[1].subtitles, result.streams[0].subtitles);
 });

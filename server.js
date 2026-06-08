@@ -243,30 +243,61 @@ function fetchManifest(url, referer) {
 // nosso proxy (mantém Referer/Origin correctos perante o CDN de origem).
 // Trata tanto linhas normais (URLs de sub-playlist/segmento) como atributos
 // URI="..." em tags #EXT-X-KEY / #EXT-X-MAP (chaves AES-128 e dados de init).
-function rewriteManifest(body, manifestUrl, referer, meta) {
+function escapeHlsAttr(value) {
+  return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+function subtitleMediaLines(subtitles) {
+  if (!Array.isArray(subtitles)) return [];
+  return subtitles
+    .filter(sub => sub?.url && sub?.lang)
+    .map((sub, index) => {
+      const lang = escapeHlsAttr(sub.lang);
+      const name = escapeHlsAttr(sub.lang);
+      const url = escapeHlsAttr(sub.url);
+      const isDefault = index === 0 ? 'YES' : 'NO';
+      return `#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="${name}",LANGUAGE="${lang}",AUTOSELECT=YES,DEFAULT=${isDefault},URI="${url}"`;
+    });
+}
+
+function rewriteManifest(body, manifestUrl, referer, meta, subtitles = []) {
   const base = manifestUrl.substring(0, manifestUrl.lastIndexOf('/') + 1);
   const ref  = referer || '';
+  const subs = subtitleMediaLines(subtitles);
+  const isMasterPlaylist = subs.length > 0 && body.includes('#EXT-X-STREAM-INF');
 
   const proxyUri = (rawUri) => {
     let abs; try { abs = new URL(rawUri, manifestUrl).href; } catch { return rawUri; }
-    const tok = sign({ u: abs, r: ref, b: base, m: meta });
+    const payload = { u: abs, r: ref, b: base, m: meta };
+    if (abs.includes('.m3u8') && subtitles.length) payload.s = subtitles;
+    const tok = sign(payload);
     // Chaves/init segments não são .m3u8 nem .ts — usamos /seg para servir bytes
     return abs.includes('.m3u8')
       ? `${SERVER_BASE}/hls/${tok}.m3u8`
       : `${SERVER_BASE}/seg/${tok}.ts`;
   };
 
-  return body.split('\n').map(line => {
+  const lines = body.split('\n').map(line => {
     const t = line.trim();
     if (!t) return line;
 
     if (t.startsWith('#EXT-X-KEY') || t.startsWith('#EXT-X-MAP')) {
       return line.replace(/URI="([^"]+)"/, (m, uri) => `URI="${proxyUri(uri)}"`);
     }
+    if (isMasterPlaylist && t.startsWith('#EXT-X-STREAM-INF') && !t.includes('SUBTITLES=')) {
+      return `${line},SUBTITLES="subs"`;
+    }
     if (t.startsWith('#')) return line;
 
     return proxyUri(t);
-  }).join('\n');
+  });
+
+  if (isMasterPlaylist) {
+    const firstStreamInfo = lines.findIndex(line => line.trim().startsWith('#EXT-X-STREAM-INF'));
+    if (firstStreamInfo !== -1) lines.splice(firstStreamInfo, 0, ...subs);
+  }
+
+  return lines.join('\n');
 }
 
 // ── Segment retry: fresh base URL cache ──────────────────────────────────────
@@ -357,7 +388,7 @@ app.all('/hls/:encoded.m3u8', async (req, res) => {
   const cachedBody = getMfCache(manifestUrl);
   if (cachedBody) {
     console.log('[proxy/hls] manifest servido do mfCache');
-    const body = rewriteManifest(cachedBody, manifestUrl, data.r, data.m);
+    const body = rewriteManifest(cachedBody, manifestUrl, data.r, data.m, data.s);
     res.set('Content-Type', 'application/x-mpegURL');
     res.set('Cache-Control', 'no-cache');
     res.set('Access-Control-Allow-Origin', '*');
@@ -391,7 +422,7 @@ app.all('/hls/:encoded.m3u8', async (req, res) => {
 
   if (upstream.status !== 200) return res.status(upstream.status).send('CDN error');
 
-  const body = rewriteManifest(upstream.data, manifestUrl, data.r, data.m);
+  const body = rewriteManifest(upstream.data, manifestUrl, data.r, data.m, data.s);
 
   res.set('Content-Type', 'application/x-mpegURL');
   res.set('Cache-Control', 'no-cache');

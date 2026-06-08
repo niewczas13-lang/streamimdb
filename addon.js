@@ -26,8 +26,8 @@ const manifest = {
 
 const builder = new addonBuilder(manifest);
 
-function makeHlsProxyUrl(streamUrl, referer, meta) {
-  const token = sign({ u: streamUrl, r: referer, m: meta });
+function makeHlsProxyUrl(streamUrl, referer, meta, subtitles) {
+  const token = sign({ u: streamUrl, r: referer, m: meta, s: subtitles });
   return `${SERVER_BASE}/hls/${token}.m3u8`;
 }
 
@@ -41,6 +41,74 @@ function originFromUrl(url) {
 
 function getStreamReferer(source, fallbackReferer) {
   return source.headers?.Referer || source.headers?.referer || source.referer || fallbackReferer;
+}
+
+const LANGUAGE_CODES = {
+  arabic: 'ara',
+  bulgarian: 'bul',
+  chinese: 'chi',
+  czech: 'cze',
+  danish: 'dan',
+  dutch: 'dut',
+  english: 'eng',
+  estonian: 'est',
+  finnish: 'fin',
+  french: 'fre',
+  german: 'ger',
+  greek: 'gre',
+  hebrew: 'heb',
+  hindi: 'hin',
+  hungarian: 'hun',
+  indonesian: 'ind',
+  italian: 'ita',
+  japanese: 'jpn',
+  latvian: 'lav',
+  lithuanian: 'lit',
+  malay: 'may',
+  norwegian: 'nor',
+  polish: 'pol',
+  portuguese: 'por',
+  russian: 'rus',
+  slovak: 'slo',
+  slovenian: 'slv',
+  spanish: 'spa',
+  swedish: 'swe',
+  tamil: 'tam',
+  telugu: 'tel',
+  thai: 'tha',
+  turkish: 'tur',
+  ukrainian: 'ukr',
+};
+
+function captionLang(caption) {
+  const urlCode = String(caption.url || caption.id || '').match(/\/([a-z]{3})(?:-\d+)?\.(?:vtt|srt)(?:$|\?)/i)?.[1];
+  if (urlCode) return urlCode.toLowerCase();
+
+  const raw = String(caption.lang || caption.language || '').trim();
+  const normalized = raw.toLowerCase().split(/[\s-]+/)[0];
+  if (/^[a-z]{3}$/.test(normalized)) return normalized;
+  return LANGUAGE_CODES[normalized] || raw || 'und';
+}
+
+function makeSubtitles(source) {
+  if (!Array.isArray(source.captions)) return undefined;
+
+  const seen = new Set();
+  const subtitles = [];
+  for (const caption of source.captions) {
+    if (!caption?.url) continue;
+    const lang = captionLang(caption);
+    const key = `${lang}:${caption.url}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    subtitles.push({
+      id: String(caption.id || caption.url),
+      url: caption.url,
+      lang,
+    });
+  }
+
+  return subtitles.length ? subtitles : undefined;
 }
 
 function makeStreamBehaviorHints(source, type, imdbId, referer) {
@@ -94,15 +162,17 @@ builder.defineStreamHandler(async (args) => {
       const meta = { imdbId, type, season, episode };
       const streams = result.streams.flatMap(s => {
         const streamReferer = getStreamReferer(s, referer);
+        const subtitles = makeSubtitles(s);
         const streamUrl = s.proxyable === false
           ? s.url
-          : makeHlsProxyUrl(s.url, streamReferer, meta);
+          : makeHlsProxyUrl(s.url, streamReferer, meta, subtitles);
         const behaviorHints = makeStreamBehaviorHints(s, type, imdbId, streamReferer);
         const directStream = {
           url:   streamUrl,
           name:  'StreamIMDb',
           title: type === 'series' ? `S${season}E${episode} · ${s.quality}` : s.quality,
           behaviorHints: Object.keys(behaviorHints).length ? behaviorHints : undefined,
+          subtitles,
         };
 
         if (s.proxyable !== false || !streamReferer) return [directStream];
@@ -112,10 +182,11 @@ builder.defineStreamHandler(async (args) => {
           : { notWebReady: true };
 
         return [directStream, {
-          url: makeHlsProxyUrl(s.url, streamReferer, meta),
+          url: makeHlsProxyUrl(s.url, streamReferer, meta, subtitles),
           name: 'StreamIMDb iOS Proxy',
           title: type === 'series' ? `S${season}E${episode} Â· ${s.quality} Â· iOS Proxy` : `${s.quality} Â· iOS Proxy`,
           behaviorHints: proxyBehaviorHints,
+          subtitles,
         }];
       });
       return { streams };
