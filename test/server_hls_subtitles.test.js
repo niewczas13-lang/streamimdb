@@ -20,6 +20,13 @@ test('HLS proxy injects subtitle tracks into master playlists', async (t) => {
       };
     }
 
+    if (url === 'https://subs.example/pol-29.vtt') {
+      return {
+        status: 200,
+        data: 'WEBVTT\n\n00:00.000 --> 00:02.000\nCzesc\n',
+      };
+    }
+
     throw new Error(`unexpected URL: ${url}`);
   };
 
@@ -53,6 +60,23 @@ test('HLS proxy injects subtitle tracks into master playlists', async (t) => {
   const body = await response.text();
 
   assert.equal(response.status, 200);
-  assert.match(body, /#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="pol",LANGUAGE="pol",AUTOSELECT=YES,DEFAULT=YES,URI="https:\/\/subs\.example\/pol-29\.vtt"/);
+  const subtitlePlaylistUrl = body.match(/URI="([^"]+\/subs\/[^"]+\.m3u8)"/)?.[1];
+  assert.ok(subtitlePlaylistUrl);
+  assert.match(body, /#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="pol",LANGUAGE="pol",AUTOSELECT=YES,DEFAULT=YES,URI="https:\/\/example\.vercel\.app\/subs\/[^"]+\.m3u8"/);
   assert.match(body, /#EXT-X-STREAM-INF:[^\n]*SUBTITLES="subs"/);
+
+  const localSubtitlePlaylistUrl = subtitlePlaylistUrl.replace('https://example.vercel.app', `http://127.0.0.1:${port}`);
+  const subtitlePlaylistResponse = await fetch(localSubtitlePlaylistUrl);
+  const subtitlePlaylistBody = await subtitlePlaylistResponse.text();
+  assert.equal(subtitlePlaylistResponse.status, 200);
+  assert.match(subtitlePlaylistBody, /#EXTINF:14400\.000,/);
+
+  const subtitleSegmentUrl = subtitlePlaylistBody.match(/(https:\/\/example\.vercel\.app\/sub\/[^\s]+\.vtt)/)?.[1];
+  assert.ok(subtitleSegmentUrl);
+  const localSubtitleSegmentUrl = subtitleSegmentUrl.replace('https://example.vercel.app', `http://127.0.0.1:${port}`);
+  const subtitleSegmentResponse = await fetch(localSubtitleSegmentUrl);
+  const subtitleSegmentBody = await subtitleSegmentResponse.text();
+  assert.equal(subtitleSegmentResponse.status, 200);
+  assert.equal(subtitleSegmentResponse.headers.get('content-type'), 'text/vtt; charset=utf-8');
+  assert.match(subtitleSegmentBody, /WEBVTT/);
 });

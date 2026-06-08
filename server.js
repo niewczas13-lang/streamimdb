@@ -247,6 +247,32 @@ function escapeHlsAttr(value) {
   return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
+const SUBTITLE_SEGMENT_DURATION = 14400;
+
+function subtitleSegmentUrl(subtitle) {
+  const tok = sign({ u: subtitle.url });
+  return `${SERVER_BASE}/sub/${tok}.vtt`;
+}
+
+function subtitlePlaylistUrl(subtitle) {
+  const tok = sign({ u: subtitle.url, lang: subtitle.lang });
+  return `${SERVER_BASE}/subs/${tok}.m3u8`;
+}
+
+function makeSubtitlePlaylist(subtitle) {
+  return [
+    '#EXTM3U',
+    '#EXT-X-VERSION:3',
+    `#EXT-X-TARGETDURATION:${SUBTITLE_SEGMENT_DURATION}`,
+    '#EXT-X-MEDIA-SEQUENCE:0',
+    '#EXT-X-PLAYLIST-TYPE:VOD',
+    `#EXTINF:${SUBTITLE_SEGMENT_DURATION}.000,`,
+    subtitleSegmentUrl(subtitle),
+    '#EXT-X-ENDLIST',
+    '',
+  ].join('\n');
+}
+
 function subtitleMediaLines(subtitles) {
   if (!Array.isArray(subtitles)) return [];
   return subtitles
@@ -254,7 +280,7 @@ function subtitleMediaLines(subtitles) {
     .map((sub, index) => {
       const lang = escapeHlsAttr(sub.lang);
       const name = escapeHlsAttr(sub.lang);
-      const url = escapeHlsAttr(sub.url);
+      const url = escapeHlsAttr(subtitlePlaylistUrl(sub));
       const isDefault = index === 0 ? 'YES' : 'NO';
       return `#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="${name}",LANGUAGE="${lang}",AUTOSELECT=YES,DEFAULT=${isDefault},URI="${url}"`;
     });
@@ -368,6 +394,61 @@ async function refreshBase(imdbId, type, season, episode, referer) {
   return newBase;
 }
 // ─────────────────────────────────────────────────────────────────────────────
+
+app.all('/subs/:encoded.m3u8', (req, res) => {
+  if (req.method === 'HEAD' || req.method === 'OPTIONS') {
+    res.set('Content-Type', 'application/x-mpegURL');
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    return res.status(200).end();
+  }
+
+  const data = decodeProxy(req.params.encoded);
+  if (!data?.u) return res.status(400).send('Bad request');
+
+  res.set('Content-Type', 'application/x-mpegURL');
+  res.set('Cache-Control', 'max-age=21600');
+  res.set('Access-Control-Allow-Origin', '*');
+  res.send(makeSubtitlePlaylist({ url: data.u, lang: data.lang || 'und' }));
+});
+
+app.all('/sub/:encoded.vtt', async (req, res) => {
+  if (req.method === 'HEAD' || req.method === 'OPTIONS') {
+    res.set('Content-Type', 'text/vtt; charset=utf-8');
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    return res.status(200).end();
+  }
+
+  const data = decodeProxy(req.params.encoded);
+  if (!data?.u) return res.status(400).send('Bad request');
+
+  try {
+    const upstream = await axios.get(data.u, {
+      headers: { 'User-Agent': PROXY_UA },
+      timeout: 15000,
+      responseType: 'text',
+      transformResponse: [body => body],
+      maxRedirects: 5,
+      validateStatus: s => s < 500,
+      httpAgent,
+      httpsAgent,
+    });
+
+    if (upstream.status !== 200) return res.status(upstream.status).send('Subtitle error');
+    const body = typeof upstream.data === 'string'
+      ? upstream.data
+      : Buffer.from(upstream.data || '').toString('utf8');
+
+    res.set('Content-Type', 'text/vtt; charset=utf-8');
+    res.set('Cache-Control', 'max-age=21600');
+    res.set('Access-Control-Allow-Origin', '*');
+    res.send(body);
+  } catch (err) {
+    console.error('[proxy/sub] upstream falhou:', err.message);
+    res.status(502).send('Subtitle proxy error');
+  }
+});
 
 // Proxy an HLS manifest (.m3u8): fetches with Referer, rewrites URIs back through us.
 // On upstream failure (5xx/timeout) tries one cache-invalidating refresh via the scraper.
