@@ -42,6 +42,7 @@ test('direct streams with referer include Stremio proxy headers', async (t) => {
   const addon = require('../addon');
   const result = await addon.get('stream', 'series', 'tt10986410:1:1');
 
+  assert.equal(result.streams.length, 2);
   assert.equal(result.streams[0].url, 'https://cdn.example/master.m3u8');
   assert.deepEqual(result.streams[0].behaviorHints.proxyHeaders, {
     request: {
@@ -50,4 +51,9 @@ test('direct streams with referer include Stremio proxy headers', async (t) => {
     },
   });
   assert.equal(result.streams[0].behaviorHints.notWebReady, true);
+
+  assert.equal(result.streams[1].name, 'StreamIMDb iOS Proxy');
+  assert.match(result.streams[1].url, /^https:\/\/example\.vercel\.app\/hls\/.+\.m3u8$/);
+  assert.equal(result.streams[1].behaviorHints.proxyHeaders, undefined);
+  assert.equal(result.streams[1].behaviorHints.notWebReady, true);
 });

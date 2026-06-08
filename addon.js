@@ -39,6 +39,10 @@ function originFromUrl(url) {
   }
 }
 
+function getStreamReferer(source, fallbackReferer) {
+  return source.headers?.Referer || source.headers?.referer || source.referer || fallbackReferer;
+}
+
 function makeStreamBehaviorHints(source, type, imdbId, referer) {
   const behaviorHints = type === 'series' ? { bingeGroup: `streamimdb-${imdbId}` } : {};
   if (source.proxyable !== false) return behaviorHints;
@@ -88,17 +92,31 @@ builder.defineStreamHandler(async (args) => {
 
     if (result && result.type === 'direct') {
       const meta = { imdbId, type, season, episode };
-      const streams = result.streams.map(s => {
+      const streams = result.streams.flatMap(s => {
+        const streamReferer = getStreamReferer(s, referer);
         const streamUrl = s.proxyable === false
           ? s.url
-          : makeHlsProxyUrl(s.url, s.referer || referer, meta);
-        const behaviorHints = makeStreamBehaviorHints(s, type, imdbId, s.referer || referer);
-        return {
+          : makeHlsProxyUrl(s.url, streamReferer, meta);
+        const behaviorHints = makeStreamBehaviorHints(s, type, imdbId, streamReferer);
+        const directStream = {
           url:   streamUrl,
           name:  'StreamIMDb',
           title: type === 'series' ? `S${season}E${episode} · ${s.quality}` : s.quality,
           behaviorHints: Object.keys(behaviorHints).length ? behaviorHints : undefined,
         };
+
+        if (s.proxyable !== false || !streamReferer) return [directStream];
+
+        const proxyBehaviorHints = type === 'series'
+          ? { bingeGroup: `streamimdb-ios-${imdbId}`, notWebReady: true }
+          : { notWebReady: true };
+
+        return [directStream, {
+          url: makeHlsProxyUrl(s.url, streamReferer, meta),
+          name: 'StreamIMDb iOS Proxy',
+          title: type === 'series' ? `S${season}E${episode} Â· ${s.quality} Â· iOS Proxy` : `${s.quality} Â· iOS Proxy`,
+          behaviorHints: proxyBehaviorHints,
+        }];
       });
       return { streams };
     }
