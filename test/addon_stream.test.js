@@ -59,12 +59,14 @@ test('direct streams with referer include Stremio proxy headers', async (t) => {
   const addon = require('../addon');
   const result = await addon.get('stream', 'series', 'tt10986410:1:1');
 
+  assert.equal(result.cacheMaxAge, 0);
   assert.equal(result.streams.length, 2);
   assert.equal(result.streams[0].url, 'https://cdn.example/master.m3u8');
   assert.deepEqual(result.streams[0].behaviorHints.proxyHeaders, {
     request: {
       Referer: 'https://videostr.net/',
       Origin: 'https://videostr.net',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
     },
   });
   assert.equal(result.streams[0].behaviorHints.notWebReady, true);

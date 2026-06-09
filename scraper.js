@@ -9,7 +9,7 @@ const { fetchFromProviders } = require('./providers');
 const { fetchFromAltSources } = require('./alt_scraper');
 const { fetchFromDatacenterSources } = require('./datacenter_scraper');
 
-const CACHE_TTL = parseInt(process.env.CACHE_TTL_MS) || 5 * 60 * 1000; // 5min
+const CACHE_TTL = parseInt(process.env.CACHE_TTL_MS) || 60 * 1000;
 const MAX_QUEUE = parseInt(process.env.MAX_QUEUE)    || 8;
 
 const cache   = new Map();

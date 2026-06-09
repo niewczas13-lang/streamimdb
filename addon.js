@@ -26,6 +26,8 @@ const manifest = {
 
 const builder = new addonBuilder(manifest);
 
+const STREAM_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36';
+
 function makeHlsProxyUrl(streamUrl, referer, meta, subtitles) {
   const token = sign({ u: streamUrl, r: referer, m: meta, s: subtitles });
   return `${SERVER_BASE}/hls/${token}.m3u8`;
@@ -139,6 +141,7 @@ function makeStreamBehaviorHints(source, type, imdbId, referer) {
     const origin = originFromUrl(streamReferer);
     if (origin) request.Origin = origin;
   }
+  if (!(request['User-Agent'] || request['user-agent'])) request['User-Agent'] = STREAM_UA;
 
   if (Object.keys(request).length > 0) {
     behaviorHints.proxyHeaders = { request };
@@ -204,10 +207,11 @@ builder.defineStreamHandler(async (args) => {
           subtitles,
         }];
       });
-      return { streams };
+      return { streams, cacheMaxAge: 0 };
     }
 
     return {
+      cacheMaxAge: 0,
       streams: [{
         externalUrl: fallbackUrl,
         name:  'StreamIMDb',
@@ -216,7 +220,7 @@ builder.defineStreamHandler(async (args) => {
     };
   } catch (err) {
     console.error(`[handler] Erro inesperado: ${err.message}`);
-    return { streams: [] };
+    return { streams: [], cacheMaxAge: 0 };
   }
 });
 

@@ -393,6 +393,27 @@ async function refreshBase(imdbId, type, season, episode, referer) {
   console.log(`[proxy/seg] freshBase refreshed (media): ${key}`);
   return newBase;
 }
+
+async function refreshManifestSource(meta, currentUrl, referer) {
+  if (!meta) return null;
+
+  invalidateCache(meta.imdbId, meta.type, meta.season, meta.episode);
+  try {
+    const fresh = await fetchVideoSource(meta.imdbId, meta.type, meta.season, meta.episode);
+    const url = fresh?.streams?.[0]?.url;
+    if (!url || url === currentUrl) return null;
+
+    console.log('[proxy/hls] refresh ok — novo URL adquirido');
+    const upstream = await fetchManifest(url, referer).catch(e => {
+      console.error('[proxy/hls] refresh upstream falhou:', e.message);
+      return null;
+    });
+    return upstream ? { url, upstream } : null;
+  } catch (e) {
+    console.error('[proxy/hls] refresh erro:', e.message);
+    return null;
+  }
+}
 // ─────────────────────────────────────────────────────────────────────────────
 
 app.all('/subs/:encoded.m3u8', (req, res) => {
@@ -451,7 +472,7 @@ app.all('/sub/:encoded.vtt', async (req, res) => {
 });
 
 // Proxy an HLS manifest (.m3u8): fetches with Referer, rewrites URIs back through us.
-// On upstream failure (5xx/timeout) tries one cache-invalidating refresh via the scraper.
+// On upstream failure (403/5xx/timeout) tries one cache-invalidating refresh via the scraper.
 app.all('/hls/:encoded.m3u8', async (req, res) => {
   if (req.method === 'HEAD' || req.method === 'OPTIONS') {
     res.set('Content-Type', 'application/x-mpegURL');
@@ -480,25 +501,20 @@ app.all('/hls/:encoded.m3u8', async (req, res) => {
     upstream = await fetchManifest(manifestUrl, data.r);
   } catch (err) {
     console.error('[proxy/hls] upstream falhou:', err.message);
-    const meta = parseRefererMeta(data.m);
-    if (meta) {
-      invalidateCache(meta.imdbId, meta.type, meta.season, meta.episode);
-      try {
-        const fresh = await fetchVideoSource(meta.imdbId, meta.type, meta.season, meta.episode);
-        const url = fresh?.streams?.[0]?.url;
-        if (url && url !== manifestUrl) {
-          console.log('[proxy/hls] refresh ok — novo URL adquirido');
-          manifestUrl = url;
-          upstream = await fetchManifest(manifestUrl, data.r).catch(e => {
-            console.error('[proxy/hls] refresh upstream falhou:', e.message);
-            return null;
-          });
-        }
-      } catch (e) {
-        console.error('[proxy/hls] refresh erro:', e.message);
-      }
+    const refreshed = await refreshManifestSource(parseRefererMeta(data.m), manifestUrl, data.r);
+    if (refreshed) {
+      manifestUrl = refreshed.url;
+      upstream = refreshed.upstream;
     }
     if (!upstream) return res.status(502).send('Proxy error');
+  }
+
+  if (upstream.status === 403 || upstream.status === 404 || upstream.status === 410) {
+    const refreshed = await refreshManifestSource(parseRefererMeta(data.m), manifestUrl, data.r);
+    if (refreshed) {
+      manifestUrl = refreshed.url;
+      upstream = refreshed.upstream;
+    }
   }
 
   if (upstream.status !== 200) return res.status(upstream.status).send('CDN error');
