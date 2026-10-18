@@ -3,6 +3,30 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
+test('fallback links open the current StreamIMDb movie and episode players', async (t) => {
+  const scraperPath = require.resolve('../scraper');
+  const addonPath = require.resolve('../addon');
+  const originalScraperCache = require.cache[scraperPath];
+  const originalAddonCache = require.cache[addonPath];
+  require.cache[scraperPath] = {
+    id: scraperPath, filename: scraperPath, loaded: true,
+    exports: { fetchVideoSource: async () => null },
+  };
+  delete require.cache[addonPath];
+  t.after(() => {
+    if (originalScraperCache) require.cache[scraperPath] = originalScraperCache;
+    else delete require.cache[scraperPath];
+    if (originalAddonCache) require.cache[addonPath] = originalAddonCache;
+    else delete require.cache[addonPath];
+  });
+
+  const addon = require('../addon');
+  const movie = await addon.get('stream', 'movie', 'tt0076759');
+  const episode = await addon.get('stream', 'series', 'tt0903747:1:1');
+  assert.equal(movie.streams[0].externalUrl, 'https://streamimdb.ru/embed/movie?imdb=tt0076759');
+  assert.equal(episode.streams[0].externalUrl, 'https://streamimdb.ru/embed/tv?imdb=tt0903747&season=1&episode=1');
+});
+
 test('direct streams with referer include Stremio proxy headers', async (t) => {
   process.env.SERVER_URL = 'https://example.vercel.app';
 
@@ -60,7 +84,7 @@ test('direct streams with referer include Stremio proxy headers', async (t) => {
   const result = await addon.get('stream', 'series', 'tt10986410:1:1');
 
   assert.equal(result.cacheMaxAge, 0);
-  assert.equal(result.streams.length, 2);
+  assert.equal(result.streams.length, 1);
   assert.equal(result.streams[0].url, 'https://cdn.example/master.m3u8');
   assert.deepEqual(result.streams[0].behaviorHints.proxyHeaders, {
     request: {
@@ -80,10 +104,38 @@ test('direct streams with referer include Stremio proxy headers', async (t) => {
     lang: 'eng',
   }]);
 
-  assert.equal(result.streams[1].name, 'ogladanie przez VLC IOS');
-  assert.equal(result.streams[1].title, 'ogladanie przez VLC IOS');
-  assert.match(result.streams[1].url, /^https:\/\/example\.vercel\.app\/hls\/.+\.m3u8$/);
-  assert.equal(result.streams[1].behaviorHints.proxyHeaders, undefined);
-  assert.equal(result.streams[1].behaviorHints.notWebReady, true);
-  assert.deepEqual(result.streams[1].subtitles, result.streams[0].subtitles);
+});
+
+test('streams are always returned directly even when a source previously required the HLS proxy', async (t) => {
+  const scraperPath = require.resolve('../scraper');
+  const addonPath = require.resolve('../addon');
+  const originalScraperCache = require.cache[scraperPath];
+  const originalAddonCache = require.cache[addonPath];
+  require.cache[scraperPath] = {
+    id: scraperPath, filename: scraperPath, loaded: true,
+    exports: {
+      fetchVideoSource: async () => ({ type: 'direct', streams: [{
+        url: 'https://cdn.example/master.m3u8', quality: 'Auto', proxyable: true,
+        referer: 'https://player.example/', headers: { 'X-Video': 'token' },
+      }, {
+        url: 'https://cdn.example/video.mp4', quality: '720', proxyable: false,
+      }] }),
+    },
+  };
+  delete require.cache[addonPath];
+  t.after(() => {
+    if (originalScraperCache) require.cache[scraperPath] = originalScraperCache;
+    else delete require.cache[scraperPath];
+    if (originalAddonCache) require.cache[addonPath] = originalAddonCache;
+    else delete require.cache[addonPath];
+  });
+
+  const addon = require('../addon');
+  const result = await addon.get('stream', 'movie', 'tt0076759');
+  assert.equal(result.streams.length, 2);
+  assert.equal(result.streams[0].url, 'https://cdn.example/master.m3u8');
+  assert.equal(result.streams[0].behaviorHints.proxyHeaders.request.Referer, 'https://player.example/');
+  assert.equal(result.streams[0].behaviorHints.proxyHeaders.request['X-Video'], 'token');
+  assert.equal(result.streams[1].url, 'https://cdn.example/video.mp4');
+  assert.equal(result.streams[1].behaviorHints?.proxyHeaders, undefined);
 });

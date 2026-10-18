@@ -1,5 +1,6 @@
 'use strict';
 const axios = require('axios');
+const { STREAMIMDB_BASE, streamImdbEmbedUrl } = require('./streamimdb');
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 const TIMEOUT = 12000;
@@ -22,11 +23,9 @@ function extractSources(body) {
   return [];
 }
 
-// Extrai iframe src do streamimdb.me e segue para o CDN
+// Extrai iframe src do StreamIMDb e segue para o CDN
 async function tryStreamImdb(imdbId, type, season, episode) {
-  const embedUrl = type === 'series'
-    ? `https://streamimdb.me/embed/${imdbId}/${season}/${episode}/`
-    : `https://streamimdb.me/embed/${imdbId}/`;
+  const embedUrl = streamImdbEmbedUrl(imdbId, type, season, episode);
 
   try {
     const embedRes = await axios.get(embedUrl, {
@@ -38,13 +37,14 @@ async function tryStreamImdb(imdbId, type, season, episode) {
     const embedBody = typeof embedRes.data === 'string' ? embedRes.data : '';
 
     // Extrai o src do iframe player
-    const iframeMatch = embedBody.match(/id="player_iframe"[^>]+src="([^"]+)"/);
+    const playerIframe = embedBody.match(/<iframe\b[^>]*\bid\s*=\s*["'](?:pf|player_iframe)["'][^>]*>/i)?.[0];
+    const iframeMatch = playerIframe?.match(/\bsrc\s*=\s*(["'])(.*?)\1/i);
     if (!iframeMatch) {
       console.log('[alt] streamimdb: iframe não encontrado');
       return null;
     }
 
-    let iframeSrc = iframeMatch[1].trim();
+    let iframeSrc = iframeMatch[2].replace(/&amp;/g, '&').trim();
     try {
       iframeSrc = new URL(iframeSrc, embedUrl).href;
     } catch {
@@ -59,7 +59,7 @@ async function tryStreamImdb(imdbId, type, season, episode) {
       headers: {
         'User-Agent': UA,
         'Referer': embedUrl,
-        'Origin': 'https://streamimdb.me',
+        'Origin': STREAMIMDB_BASE,
       },
       maxRedirects: 10,
       validateStatus: s => s < 500,
@@ -68,7 +68,7 @@ async function tryStreamImdb(imdbId, type, season, episode) {
     const finalUrl = iframeRes.request?.res?.responseUrl || iframeRes.request?.responseURL || '';
     if (finalUrl && finalUrl.includes('.m3u8')) {
       console.log('[alt] streamimdb: redirect directo para m3u8');
-      return [{ url: finalUrl, quality: 'Auto' }];
+      return [{ url: finalUrl, quality: 'Auto', referer: iframeSrc }];
     }
 
     const iframeBody = typeof iframeRes.data === 'string' ? iframeRes.data : JSON.stringify(iframeRes.data);
@@ -76,13 +76,13 @@ async function tryStreamImdb(imdbId, type, season, episode) {
     const sources = extractSources(iframeBody);
     if (sources.length) {
       console.log(`[alt] streamimdb: ${sources.length} fontes encontradas`);
-      return sources;
+      return sources.map(source => ({ ...source, referer: iframeSrc }));
     }
 
     const m3u8 = extractM3u8(iframeBody);
     if (m3u8) {
       console.log('[alt] streamimdb: m3u8 encontrado');
-      return [{ url: m3u8, quality: 'Auto' }];
+      return [{ url: m3u8, quality: 'Auto', referer: iframeSrc }];
     }
 
     // Tenta seguir um segundo nível (o CDN pode redirecionar para outro iframe)
@@ -98,12 +98,12 @@ async function tryStreamImdb(imdbId, type, season, episode) {
       const nestedSources = extractSources(nestedBody);
       if (nestedSources.length) {
         console.log(`[alt] streamimdb nested: ${nestedSources.length} fontes`);
-        return nestedSources;
+        return nestedSources.map(source => ({ ...source, referer: nestedIframe[1] }));
       }
       const nestedM3u8 = extractM3u8(nestedBody);
       if (nestedM3u8) {
         console.log('[alt] streamimdb nested: m3u8 encontrado');
-        return [{ url: nestedM3u8, quality: 'Auto' }];
+        return [{ url: nestedM3u8, quality: 'Auto', referer: nestedIframe[1] }];
       }
     }
 
@@ -149,7 +149,7 @@ async function tryMultiEmbed(imdbId, type, season, episode) {
 }
 
 async function fetchFromAltSources(imdbId, type, season, episode) {
-  // streamimdb.me é a nossa fonte principal — sabemos que funciona no browser
+  // StreamIMDb: pode exigir Turnstile no browser, sem fonte HTTP directa.
   const result = await tryStreamImdb(imdbId, type, season, episode);
   if (result && result.length > 0) return result;
 

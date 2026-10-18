@@ -1,12 +1,13 @@
 # StreamIMDb Connector — Stremio Add-on
 
-A Stremio add-on that fetches `.m3u8` video streams via a direct API call and plays them natively inside Stremio, without opening a browser.
+A Stremio add-on that resolves direct MP4 and HLS URLs. Vercel hosts the add-on
+manifest and stream metadata; Stremio downloads video directly from the provider.
 
 ## Features
 
 - **Best quality stream** — always selects the highest available variant (4K → 1080p → 720p → …)
-- **HLS proxy** — all segments are served through the add-on server with correct headers, eliminating CDN buffering
-- **Auto CDN fallback** — tests all available CDN sources in parallel, picks the first working one
+- **Direct playback** — video does not pass through Vercel; required provider headers are returned to Stremio
+- **Source fallback** — Vidlink (MP4 or HLS), followed by VixSrc and the remaining fallbacks
 - **Binge watching** — next episode screen appears at the end of each episode
 - **Health monitoring** — automatic periodic checks of the upstream API with webhook/email alerts
 - **Fast & lightweight** — pure HTTP, no browser, <5s response time, ~5MB RAM per request
@@ -15,10 +16,15 @@ A Stremio add-on that fetches `.m3u8` video streams via a direct API call and pl
 
 1. You click on a movie or series in Stremio
 2. The add-on receives the IMDb ID (e.g. `tt0076759`)
-3. It calls `streamdata.vaplayer.ru/api.php` directly (no browser, pure HTTP)
-4. The API returns a list of `.m3u8` stream URLs tested in parallel
-5. The HLS master playlist is parsed and the highest quality variant is selected
-6. All segments are proxied through the server with the required `Referer`/`Origin` headers
+3. It uses `TMDB_API_KEY` to resolve the TMDB ID required by Vidlink and VixSrc
+4. Vidlink returns an HLS playlist or a set of MP4 file qualities; the add-on selects the highest available file quality
+5. The add-on returns the provider URL, captions, and any required request headers as JSON
+6. Stremio fetches the video directly from the provider; Vercel does not relay it
+
+On Vercel, the legacy `/hls`, `/seg`, `/subs`, and `/sub` proxy routes return 404.
+The add-on does not generate proxy playback entries. MP4 sources without required
+headers receive no invented `Referer` or `Origin`; the current file CDN rejects
+the player `Referer` with HTTP 429.
 
 ## Requirements
 
@@ -61,11 +67,10 @@ Or visit `http://localhost:7000` for the install page.
 
 | Variable | Default | Description |
 |---|---|---|
-| `VAPLAYER_API_URL` | `https://streamdata.vaplayer.ru/api.php` | Upstream stream API |
-| `CACHE_TTL_MS` | `900000` (15min) | Stream URL cache duration |
+| `TMDB_API_KEY` | — | Required TMDB API key for IMDb → TMDB lookup; set for Production on Vercel |
+| `CACHE_TTL_MS` | `60000` (1min) | Stream URL cache duration |
 | `MAX_QUEUE` | `8` | Max concurrent scrape requests |
-| `RENDER_EXTERNAL_URL` | — | Auto-set by Render — used for HLS proxy URLs |
-| `SERVER_URL` | — | Override server base URL (local/self-hosted) |
+| `SERVER_URL` | — | Stable public add-on URL, e.g. `https://streamimdb-ten.vercel.app` |
 | `HEALTH_CHECK_INTERVAL_MS` | `300000` (5min) | Health check frequency |
 | `ALERT_WEBHOOK` | — | Slack/Discord webhook URL for alerts |
 | `ALERT_EMAIL` | — | Email address for alerts |
@@ -73,13 +78,28 @@ Or visit `http://localhost:7000` for the install page.
 ## Project structure
 
 ```
-server.js   — HTTP server (port 7000) + landing page + HLS proxy + /health endpoint
-addon.js    — Stremio SDK manifest and stream handler
-scraper.js  — API fetch, quality parsing, cache, dedup and queue protection
-health.js   — Periodic API health checks and alert system
+server.js             — Express app, landing page, /health; media proxy routes disabled on Vercel
+addon.js              — Stremio manifest and direct stream responses
+datacenter_scraper.js — Vidlink MP4/HLS and VixSrc integration
+streamimdb.js         — Shared current StreamIMDb embed URLs
+scraper.js            — Source fallback, cache, dedup and queue protection
+health.js             — Periodic API health checks and alert system
 ```
 
 ## Troubleshooting
+
+### StreamIMDb domain and unavailable sources
+
+The StreamIMDb integration uses `https://streamimdb.ru`, with
+`/embed/movie?imdb=...` for movies and
+`/embed/tv?imdb=...&season=...&episode=...` for episodes. The scraper and
+browser fallback share these URLs in `streamimdb.js`.
+
+The embedded provider may return a Cloudflare Turnstile page instead of a
+video source. The HTTP scraper cannot resolve that browser challenge; updating
+the domain alone does not restore native playback in that case. If no provider
+returns a stream, the add-on offers the current StreamIMDb player as an external
+browser link. VixSrc and Vidlink still require `TMDB_API_KEY`.
 
 ### Android — stream not playing or player error
 

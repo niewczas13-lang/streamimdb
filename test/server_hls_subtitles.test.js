@@ -5,7 +5,6 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 
 test('HLS proxy injects subtitle tracks into master playlists', async (t) => {
-  process.env.VERCEL = '1';
   process.env.SERVER_URL = 'https://example.vercel.app';
   process.env.PROXY_SECRET = 'test-secret';
   process.env.HEALTH_CHECK_INTERVAL_MS = '0';
@@ -32,7 +31,6 @@ test('HLS proxy injects subtitle tracks into master playlists', async (t) => {
 
   t.after(() => {
     axios.get = originalGet;
-    delete process.env.VERCEL;
     delete process.env.SERVER_URL;
     delete process.env.PROXY_SECRET;
     delete process.env.HEALTH_CHECK_INTERVAL_MS;
@@ -82,7 +80,6 @@ test('HLS proxy injects subtitle tracks into master playlists', async (t) => {
 });
 
 test('HLS proxy refreshes stale manifest URLs after CDN 403', async (t) => {
-  process.env.VERCEL = '1';
   process.env.SERVER_URL = 'https://example.vercel.app';
   process.env.PROXY_SECRET = 'test-secret-refresh';
   process.env.HEALTH_CHECK_INTERVAL_MS = '0';
@@ -150,7 +147,6 @@ test('HLS proxy refreshes stale manifest URLs after CDN 403', async (t) => {
     if (originalProxyTokenCache) require.cache[proxyTokenPath] = originalProxyTokenCache;
     else delete require.cache[proxyTokenPath];
 
-    delete process.env.VERCEL;
     delete process.env.SERVER_URL;
     delete process.env.PROXY_SECRET;
     delete process.env.HEALTH_CHECK_INTERVAL_MS;

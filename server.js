@@ -25,28 +25,20 @@ const SERVER_BASE = (
   `http://localhost:${PORT}`
 ).replace(/\/$/, '');
 
-// Em serverless (Vercel) cada cold-start é um processo isolado. Sem estas
-// duas vars FIXAS nos Project Settings, o proxy parte-se de forma silenciosa:
-// - SERVER_URL em falta → cai para VERCEL_URL (domínio efémero por deployment,
-//   diferente do domínio estável instalado no Stremio) → tokens apontam para
-//   o host errado
-// - PROXY_SECRET em falta → cada instância gera um segredo aleatório próprio →
-//   a instância que assina o token (/stream) quase nunca é a mesma que o
-//   verifica (/hls, /seg) → verify() falha sempre → 400 silencioso → o player
-//   muda para LibVLC e fica preso sem mais nenhum pedido
-if (process.env.VERCEL) {
-  if (!process.env.SERVER_URL) {
-    console.warn(`[config] AVISO: SERVER_URL não definida — a usar ${SERVER_BASE} (domínio efémero do deployment). Define SERVER_URL=https://<o-teu-dominio-estavel>.vercel.app nos Project Settings → Environment Variables.`);
-  }
-  if (!process.env.PROXY_SECRET) {
-    console.warn('[config] AVISO CRÍTICO: PROXY_SECRET não definida — cada instância serverless gera um segredo aleatório próprio, o que faz a verificação dos tokens do proxy /hls e /seg falhar entre instâncias (reprodução fica presa). Gera um valor fixo com `node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"` e define PROXY_SECRET nos Project Settings → Environment Variables.');
-  }
+// SERVER_URL mantém os links de instalação no domínio estável do addon.
+if (process.env.VERCEL && !process.env.SERVER_URL) {
+  console.warn(`[config] AVISO: SERVER_URL não definida — a usar ${SERVER_BASE} (domínio efémero do deployment). Define SERVER_URL=https://<o-teu-dominio-estavel>.vercel.app nos Project Settings → Environment Variables.`);
 }
 
 const app = express();
 
 // Enable gzip compression for faster manifest delivery
 app.use(compression());
+
+// Vercel só devolve metadados e URLs directos. Vídeo e legendas vêm da CDN.
+if (process.env.VERCEL) {
+  app.use(['/hls', '/seg', '/subs', '/sub'], (req, res) => res.sendStatus(404));
+}
 
 app.use(getRouter(addonInterface));
 
@@ -216,7 +208,7 @@ function decodeProxy(token) {
 
 // Meta (imdbId/type/season/episode) vem embebido no token assinado (campo `m`),
 // gravado em addon.js no momento da resolução — assim o refresh funciona com
-// qualquer formato de referer (vixsrc.to, vidlink.pro, streamimdb.me, etc.),
+// qualquer formato de referer (vixsrc.to, vidlink.pro, StreamIMDb, etc.),
 // sem depender de regex que só reconhecia o formato antigo /embed/{tv,movie}/.
 function parseRefererMeta(meta) {
   if (!meta || !meta.imdbId) return null;
@@ -606,7 +598,7 @@ app.all('/seg/:encoded.ts', async (req, res) => {
 
 // Em ambiente serverless (Vercel) o módulo é importado por api/index.js sem
 // abrir porta própria — a plataforma trata do listen.
-if (!process.env.VERCEL) {
+if (!process.env.VERCEL && require.main === module) {
   const server = app.listen(PORT, () => {
     console.log(`Add-on disponível em http://localhost:${PORT}/manifest.json`);
     console.log(`HTTP addon accessible at: http://127.0.0.1:${PORT}/manifest.json`);

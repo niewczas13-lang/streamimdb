@@ -1,22 +1,13 @@
 'use strict';
 const { addonBuilder } = require('stremio-addon-sdk');
 const { fetchVideoSource } = require('./scraper');
-const { sign } = require('./proxy_token');
-
-const BRIGHTPATH_BASE = 'https://brightpathsignals.com/embed';
-const PORT = process.env.PORT || 7000;
-const SERVER_BASE = (
-  process.env.RENDER_EXTERNAL_URL ||
-  process.env.SERVER_URL ||
-  (process.env.VERCEL_URL && `https://${process.env.VERCEL_URL}`) ||
-  `http://localhost:${PORT}`
-).replace(/\/$/, '');
+const { streamImdbEmbedUrl } = require('./streamimdb');
 
 const manifest = {
   id: 'org.local.streamimdb',
   version: '1.4.1',
   name: 'StreamIMDb Connector',
-  description: 'Stream movies and series via streamimdb.me natively inside Stremio.',
+  description: 'Stream movies and series via streamimdb.ru natively inside Stremio.',
   logo: 'https://raw.githubusercontent.com/F100Pilot/stremio-addon-streamimdb/main/icon.png',
   types: ['movie', 'series'],
   catalogs: [],
@@ -28,11 +19,6 @@ const builder = new addonBuilder(manifest);
 
 const STREAM_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36';
 
-function makeHlsProxyUrl(streamUrl, referer, meta, subtitles) {
-  const token = sign({ u: streamUrl, r: referer, m: meta, s: subtitles });
-  return `${SERVER_BASE}/hls/${token}.m3u8`;
-}
-
 function originFromUrl(url) {
   try {
     return new URL(url).origin;
@@ -41,8 +27,8 @@ function originFromUrl(url) {
   }
 }
 
-function getStreamReferer(source, fallbackReferer) {
-  return source.headers?.Referer || source.headers?.referer || source.referer || fallbackReferer;
+function getStreamReferer(source) {
+  return source.headers?.Referer || source.headers?.referer || source.referer;
 }
 
 const LANGUAGE_CODES = {
@@ -130,11 +116,10 @@ function makeSubtitles(source) {
 
 function makeStreamBehaviorHints(source, type, imdbId, referer) {
   const behaviorHints = type === 'series' ? { bingeGroup: `streamimdb-${imdbId}` } : {};
-  if (source.proxyable !== false) return behaviorHints;
-
   const request = { ...(source.headers || {}) };
   const headerReferer = request.Referer || request.referer;
   const streamReferer = headerReferer || source.referer || referer;
+  if (!streamReferer && Object.keys(request).length === 0) return behaviorHints;
 
   if (streamReferer && !headerReferer) request.Referer = streamReferer;
   if (!(request.Origin || request.origin)) {
@@ -159,13 +144,7 @@ builder.defineStreamHandler(async (args) => {
     const season = parts[1] || null;
     const episode = parts[2] || null;
 
-    const referer = type === 'series'
-      ? `${BRIGHTPATH_BASE}/tv/${imdbId}/${season}/${episode}`
-      : `${BRIGHTPATH_BASE}/movie/${imdbId}`;
-
-    const fallbackUrl = type === 'series'
-      ? `https://streamimdb.me/embed/${imdbId}/${season}/${episode}/`
-      : `https://streamimdb.me/embed/${imdbId}/`;
+    const fallbackUrl = streamImdbEmbedUrl(imdbId, type, season, episode);
 
     let result = null;
     try {
@@ -177,35 +156,17 @@ builder.defineStreamHandler(async (args) => {
     // A dedup/cache do scraper trata dos casos transitórios.
 
     if (result && result.type === 'direct') {
-      const meta = { imdbId, type, season, episode };
-      const streams = result.streams.flatMap(s => {
-        const streamReferer = getStreamReferer(s, referer);
+      const streams = result.streams.map(s => {
+        const streamReferer = getStreamReferer(s);
         const subtitles = makeSubtitles(s);
-        const streamUrl = s.proxyable === false
-          ? s.url
-          : makeHlsProxyUrl(s.url, streamReferer, meta, subtitles);
         const behaviorHints = makeStreamBehaviorHints(s, type, imdbId, streamReferer);
-        const directStream = {
-          url:   streamUrl,
+        return {
+          url:   s.url,
           name:  'StreamIMDb',
           title: type === 'series' ? `S${season}E${episode} · ${s.quality}` : s.quality,
           behaviorHints: Object.keys(behaviorHints).length ? behaviorHints : undefined,
           subtitles,
         };
-
-        if (s.proxyable !== false || !streamReferer) return [directStream];
-
-        const proxyBehaviorHints = type === 'series'
-          ? { bingeGroup: `streamimdb-ios-${imdbId}`, notWebReady: true }
-          : { notWebReady: true };
-
-        return [directStream, {
-          url: makeHlsProxyUrl(s.url, streamReferer, meta, subtitles),
-          name: 'ogladanie przez VLC IOS',
-          title: 'ogladanie przez VLC IOS',
-          behaviorHints: proxyBehaviorHints,
-          subtitles,
-        }];
       });
       return { streams, cacheMaxAge: 0 };
     }

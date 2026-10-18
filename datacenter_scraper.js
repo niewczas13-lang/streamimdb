@@ -1,6 +1,6 @@
 'use strict';
 // Fontes que funcionam a partir de IPs de datacenter (Vercel) — só axios,
-// sem browser/Puppeteer. Ao contrário do streamimdb.me/Cloudflare Turnstile,
+// sem browser/Puppeteer. Ao contrário do StreamIMDb/Cloudflare Turnstile,
 // estas não bloqueiam pedidos server-side.
 //
 // 1. VixSrc (vixsrc.to)  — extrai master m3u8 via token da página embed
@@ -89,14 +89,32 @@ async function tryVidlink(tmdbId, type, season, episode) {
       timeout: 8000, validateStatus: s => s < 500,
     });
     const stream = res.data && res.data.stream;
-    const playlist = stream && stream.playlist;
-    if (!playlist) { console.log('[dc:vidlink] sem playlist'); return null; }
+    const files = Object.entries(stream?.qualities || {})
+      .filter(([, file]) => typeof file?.url === 'string' && file.url)
+      .sort(([a], [b]) => (parseInt(b, 10) || 0) - (parseInt(a, 10) || 0));
+    const bestFile = files[0];
+    const playlist = stream?.playlist;
+    const url = playlist || bestFile?.[1].url;
+    if (!url) { console.log('[dc:vidlink] sem stream HLS/MP4'); return null; }
     const captions = Array.isArray(stream.captions) ? stream.captions : undefined;
+    const headers = {
+      ...stream.preferredHeaders,
+      ...stream.headers,
+      ...(!playlist && bestFile?.[1].headers),
+    };
 
-    console.log(`[dc:vidlink] ✓ playlist: ${playlist.substring(0, 70)}...`);
-    // proxyable:false — ver nota em tryVixsrc: a CDN bloqueia o IP de
-    // datacenter do nosso proxy; o cliente (IP residencial) tenta directo.
-    return [{ url: playlist, quality: 'Auto', proxyable: false, referer: VIDLINK_REF + '/', captions }];
+    console.log(`[dc:vidlink] ✓ ${playlist ? 'HLS' : `MP4 ${bestFile[0]}p`}`);
+    // Stremio descarrega o vídeo directamente da CDN; Vercel só serve JSON.
+    return [{
+      url,
+      quality: playlist ? 'Auto' : bestFile[0],
+      proxyable: false,
+      // Pliki MP4 z aktualnej odpowiedzi CDN nie wymagają Referer.
+      // Dodanie referera playera powoduje HTTP 429 zamiast odpowiedzi wideo.
+      referer: playlist ? VIDLINK_REF + '/' : undefined,
+      captions,
+      headers: Object.keys(headers).length ? headers : undefined,
+    }];
   } catch (e) {
     console.log(`[dc:vidlink] erro: ${e.message}`);
     return null;
@@ -110,11 +128,12 @@ async function fetchFromDatacenterSources(imdbId, type, season, episode) {
   const tmdbId = tmdb.id;
   console.log(`[dc] IMDb ${imdbId} → TMDB ${tmdbId}`);
 
-  const vix = await tryVixsrc(tmdbId, type, season, episode);
-  if (vix && vix.length) return vix;
-
+  // Vidlink suporta respostas HLS e MP4 e é a primeira opção no Vercel.
   const vid = await tryVidlink(tmdbId, type, season, episode);
   if (vid && vid.length) return vid;
+
+  const vix = await tryVixsrc(tmdbId, type, season, episode);
+  if (vix && vix.length) return vix;
 
   return null;
 }

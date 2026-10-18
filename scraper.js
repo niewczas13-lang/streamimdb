@@ -3,7 +3,7 @@
 //
 // Ordem das tentativas (fetchVideoSource):
 //   1. datacenter_scraper (VixSrc, Vidlink) — só axios, funciona em datacenter/Vercel
-//   2. alt_scraper (streamimdb.me) — funciona melhor em IP residencial
+//   2. alt_scraper (StreamIMDb) — funciona melhor em IP residencial
 //   3. movie-web providers — último recurso (lento)
 const { fetchFromProviders } = require('./providers');
 const { fetchFromAltSources } = require('./alt_scraper');
@@ -74,7 +74,7 @@ async function fetchVideoSource(imdbId, type = 'movie', season = null, episode =
       if (streams) { console.log('[scraper] datacenter sources OK'); setCached(key, streams); return streams; }
     } catch (e) { console.log('[scraper] datacenter sources falhou:', e.message); }
 
-    // 2. alt_scraper (streamimdb.me — melhor em IP residencial)
+    // 2. alt_scraper (StreamIMDb — melhor em IP residencial)
     try {
       const streams = await fetchFromAltSources(imdbId, type, season, episode);
       if (streams) { console.log('[scraper] alt_scraper OK'); setCached(key, streams); return streams; }
