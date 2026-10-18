@@ -26,6 +26,10 @@ The add-on does not generate proxy playback entries. MP4 sources without require
 headers receive no invented `Referer` or `Origin`; the current file CDN rejects
 the player `Referer` with HTTP 429.
 
+Vercel detects `server.js` as the Node application entrypoint and preserves the
+original request path. Do not add a catch-all rewrite to `/api/index`; that
+legacy configuration causes all Express routes to return 404 on current builds.
+
 ## Requirements
 
 - [Node.js](https://nodejs.org) v18+
